@@ -3,7 +3,7 @@
     <!-- tilt/translate the whole content -->
     <div class="tiltwrap">
       <header class="header">
-        <div class="brand">my portfolio</div>
+        <div class="brand" @click="open('https://github.com/TSherpa10/my-website')">my portfolio</div>
       </header>
 
       <main class="main">
