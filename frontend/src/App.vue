@@ -111,7 +111,7 @@ const experience = ref<ExperienceItem[]>([
   {
     company: 'jhu applied physics lab',
     period: 'aug.2025 — oct.2025',
-    oneLine: 'autonomous sytems — full-stack, devsecops',
+    oneLine: 'autonomous systems — full-stack, devsecops',
     link: 'https://www.jhuapl.edu/',
   },
   {
