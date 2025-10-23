@@ -1,9 +1,11 @@
 <template>
   <div class="page">
-    <!-- tilt/translate the whole content -->
+    <!-- wobbling white sheet sized to viewport -->
     <div class="tiltwrap">
       <header class="header">
-        <div class="brand" @click="open('https://github.com/TSherpa10/my-website')">my portfolio</div>
+        <div class="brand" @click="open('https://github.com/TSherpa10/my-website')">
+          my portfolio
+        </div>
       </header>
 
       <main class="main">
@@ -55,29 +57,20 @@
 
       <footer class="footer">
         <nav class="foot-links" aria-label="social links">
-          <a
-            :href="links.linkedin"
-            target="https://www.linkedin.com/in/tsherpa10/"
-            rel="noreferrer noopener"
-            >linkedin</a
-          >
-          <a :href="links.github" target="https://github.com/TSherpa10" rel="noreferrer noopener"
-            >github</a
-          >
-          <a :href="links.gamedev" target="https://notoshi.itch.io/" rel="noreferrer noopener"
-            >game dev</a
-          >
+          <a :href="links.linkedin" target="_blank" rel="noreferrer noopener">linkedin</a>
+          <a :href="links.github" target="_blank" rel="noreferrer noopener">github</a>
+          <a :href="links.gamedev" target="_blank" rel="noreferrer noopener">game dev</a>
         </nav>
         <div class="brand">© {{ year }} tashi sherpa</div>
       </footer>
     </div>
 
+    <!-- black-blob cursor -->
     <div class="cursor-layer" aria-hidden="true">
       <div class="cursor-wrap">
         <div class="cursor-bubble"></div>
       </div>
     </div>
-
     <div class="laser-dot" aria-hidden="true"></div>
   </div>
 </template>
@@ -98,10 +91,10 @@ interface ExperienceItem {
   link?: string
 }
 
-const imageSrc = ref<string>(
+const imageSrc = ref(
   'https://media.licdn.com/dms/image/v2/D4E03AQGfWDjhgOlNpg/profile-displayphoto-crop_800_800/B4EZoCjxODIMAI-/0/1760979522831?e=1762992000&v=beta&t=Ga7gq9y2CY1vt51js5CkFvNwbpijXUcwUWHlZkLHK64',
 )
-const hobbies = ref<string>('sports + cooking + photography + nature + game dev')
+const hobbies = ref('sports + cooking + photography + nature + game dev')
 const links = ref<Links>({
   linkedin: 'https://www.linkedin.com/in/tsherpa10/',
   github: 'https://github.com/TSherpa10',
@@ -136,48 +129,80 @@ const experience = ref<ExperienceItem[]>([
 ])
 
 function open(href?: string) {
-  if (!href || href === '#') return
-  window.open(href, '_blank', 'noopener')
+  if (href && href !== '#') window.open(href, '_blank', 'noopener')
 }
-
 const year = computed(() => new Date().getFullYear())
 
-function onMove(e: PointerEvent) {
-  const w = window.innerWidth
-  const h = window.innerHeight
-  const nx = (e.clientX / w) * 2 - 1 // -1..1
-  const ny = (e.clientY / h) * 2 - 1 // -1..1
+/* ---------------- Cursor / tilt controller (hardened) ---------------- */
+let aborter: AbortController | null = null
+let rafId = 0
 
-  const root = document.documentElement
-  root.style.setProperty('--x', `${e.clientX}px`)
-  root.style.setProperty('--y', `${e.clientY}px`)
+const state = {
+  w: 0,
+  h: 0,
+  x: 0,
+  y: 0, // pointer px
+  nx: 0,
+  ny: 0, // normalized -1..1
+  visible: false,
+  disabled: false,
+}
 
-  // page tilt + subtle translate
+function setVars(root: HTMLElement, x: number, y: number, nx: number, ny: number) {
+  root.style.setProperty('--x', `${x}px`)
+  root.style.setProperty('--y', `${y}px`)
+
   const maxTilt = 4
   const rx = (-ny * maxTilt).toFixed(3)
   const ry = (nx * maxTilt).toFixed(3)
   const tMax = 10
   const tx = (nx * tMax).toFixed(2)
   const ty = (ny * tMax).toFixed(2)
+
   root.style.setProperty('--rx', `${rx}deg`)
   root.style.setProperty('--ry', `${ry}deg`)
   root.style.setProperty('--tx', `${tx}px`)
   root.style.setProperty('--ty', `${ty}px`)
 
-  // bubble orientation/warp tied to same movement
   const theta = (Math.atan2(ny, nx) * 180) / Math.PI
   root.style.setProperty('--theta', `${theta.toFixed(2)}deg`)
-  root.style.setProperty('--sx', `${(1 + Math.abs(nx) * 0.25).toFixed(3)}`)
-  root.style.setProperty('--sy', `${(1 + Math.abs(ny) * 0.18).toFixed(3)}`)
+  root.style.setProperty('--sx', (1 + Math.abs(nx) * 0.25).toFixed(3))
+  root.style.setProperty('--sy', (1 + Math.abs(ny) * 0.18).toFixed(3))
 
-  const hit = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
+  // disable invert over avatar
+  const hit = document.elementFromPoint(x, y) as HTMLElement | null
   document.documentElement.classList.toggle('over-avatar', !!hit && !!hit.closest('.avatar'))
 }
 
-const onDown = () => document.body.classList.add('is-clicking')
-const onUp = () => document.body.classList.remove('is-clicking')
+function tick() {
+  rafId = 0
+  if (state.disabled) return
+  setVars(document.documentElement, state.x, state.y, state.nx, state.ny)
+}
 
-onMounted(() => {
+function schedule() {
+  if (!rafId) rafId = requestAnimationFrame(tick)
+}
+
+function updateFromPointer(clientX: number, clientY: number) {
+  state.x = clientX
+  state.y = clientY
+  state.nx = (clientX / state.w) * 2 - 1
+  state.ny = (clientY / state.h) * 2 - 1
+  schedule()
+}
+
+function initCenter() {
+  const cx = Math.round(state.w / 2)
+  const cy = Math.round(state.h / 2)
+  state.x = cx
+  state.y = cy
+  state.nx = 0
+  state.ny = 0
+  setVars(document.documentElement, cx, cy, 0, 0)
+}
+
+function applyBaseVars() {
   const root = document.documentElement
   root.style.setProperty('--x', '50vw')
   root.style.setProperty('--y', '50vh')
@@ -185,28 +210,105 @@ onMounted(() => {
   root.style.setProperty('--ry', '0deg')
   root.style.setProperty('--tx', '0px')
   root.style.setProperty('--ty', '0px')
-
-  // bubble base (no mask needed)
-  root.style.setProperty('--d', '128px') // diameter; tweak
+  root.style.setProperty('--d', '128px')
   root.style.setProperty('--theta', '0deg')
   root.style.setProperty('--sx', '1')
   root.style.setProperty('--sy', '1')
-
-  // ensure text becomes *white* (no dulling)
   root.style.setProperty('--invert-contrast', '1.35')
-  root.style.setProperty('--invert-bright', '1.00') // keep whites pure
-
-  // soft edge thickness (sub-pixel AA; no blur())
+  root.style.setProperty('--invert-bright', '1.00')
   root.style.setProperty('--soft', '1.5px')
+}
 
-  window.addEventListener('pointermove', onMove, { passive: true })
-  window.addEventListener('pointerdown', onDown, { passive: true })
-  window.addEventListener('pointerup', onUp, { passive: true })
+function setVisibility(show: boolean) {
+  document.documentElement.classList.toggle('cursor-hidden', !show)
+  state.visible = show
+}
+
+onMounted(() => {
+  aborter = new AbortController()
+  const { signal } = aborter
+
+  const measure = () => {
+    state.w = window.innerWidth
+    state.h = window.innerHeight
+  }
+  measure()
+
+  const mqlMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
+  const mqlTouch = window.matchMedia('(hover: none), (pointer: coarse)')
+  const updateDisabled = () => {
+    state.disabled = mqlMotion.matches || mqlTouch.matches
+    document.documentElement.classList.toggle('no-bubble', state.disabled)
+    if (state.disabled) {
+      document.body.classList.remove('is-clicking')
+      setVisibility(false)
+      cancelAnimationFrame(rafId)
+      rafId = 0
+    } else {
+      applyBaseVars()
+      setVisibility(true)
+      measure()
+      initCenter()
+    }
+  }
+  mqlMotion.addEventListener('change', updateDisabled, { signal })
+  mqlTouch.addEventListener('change', updateDisabled, { signal })
+  updateDisabled()
+
+  applyBaseVars()
+  initCenter()
+
+  if (!state.disabled) {
+    window.addEventListener('pointermove', (e) => updateFromPointer(e.clientX, e.clientY), {
+      passive: true,
+      signal,
+    })
+    window.addEventListener('pointerdown', () => document.body.classList.add('is-clicking'), {
+      passive: true,
+      signal,
+    })
+    window.addEventListener('pointerup', () => document.body.classList.remove('is-clicking'), {
+      passive: true,
+      signal,
+    })
+    window.addEventListener('pointerenter', () => setVisibility(true), { signal })
+    window.addEventListener('pointerleave', () => setVisibility(false), { signal })
+    window.addEventListener(
+      'resize',
+      () => {
+        measure()
+        initCenter()
+      },
+      { passive: true, signal },
+    )
+  }
+
+  document.addEventListener(
+    'visibilitychange',
+    () => {
+      if (document.hidden) {
+        setVisibility(false)
+        cancelAnimationFrame(rafId)
+        rafId = 0
+        document.body.classList.remove('is-clicking')
+      } else {
+        measure()
+        initCenter()
+        setVisibility(!state.disabled)
+      }
+    },
+    { signal },
+  )
 })
+
 onUnmounted(() => {
-  window.removeEventListener('pointermove', onMove)
-  window.removeEventListener('pointerdown', onDown)
-  window.removeEventListener('pointerup', onUp)
+  if (aborter) {
+    aborter.abort()
+    aborter = null
+  }
+  cancelAnimationFrame(rafId)
+  rafId = 0
+  document.body.classList.remove('is-clicking')
 })
 </script>
 
@@ -222,9 +324,10 @@ onUnmounted(() => {
   --ty: 0px;
 }
 
+/* black stage (real bg) */
 .page {
-  min-height: 100vh;
-  background: black;
+  height: 100dvh;
+  background: #000;
   color: var(--fg);
   font-family:
     'Helvetica Neue',
@@ -235,30 +338,38 @@ onUnmounted(() => {
     'Segoe UI',
     sans-serif;
   perspective: 800px;
-  overflow: hidden;
+  overflow: hidden; /* page itself doesn’t scroll */
 }
 
+/* WHITE SHEET: header / scrollable main / footer */
 .tiltwrap {
-  /* size & look */
   width: 100vw;
-  min-height: 100vh;
-  margin: 0; /* remove margins so it “reads” as the page */
-  background: #fff; /* white front */
+  height: 100dvh;
+  margin: 0;
+  background: #fff;
   box-sizing: border-box;
 
-  /* keep your existing wobble */
-  transform: translate3d(calc(var(--tx)), var(--ty), 0) rotateX(var(--rx)) rotateY(var(--ry));
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  align-items: stretch;
+
+  transform: translate3d(var(--tx), var(--ty), 0) rotateX(var(--rx)) rotateY(var(--ry));
   transform-style: preserve-3d;
   transition: transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
   will-change: transform;
 }
 
+/* middle area can scroll; header/footer stay pinned */
+.main {
+  min-height: 0; /* allow 1fr row to shrink */
+  overflow: auto; /* internal scroll only */
+  -webkit-overflow-scrolling: touch;
+  padding: 32px 24px 24px; /* slightly less top space */
+}
+
 .header,
 .footer {
-  padding: 24px;
-}
-.main {
-  padding: 48px 24px 32px;
+  padding: 16px 24px;
 }
 .brand {
   letter-spacing: 0.04em;
@@ -269,6 +380,7 @@ onUnmounted(() => {
 .brand:hover {
   text-decoration: underline;
 }
+
 .hero {
   max-width: 1080px;
   margin: 0 auto;
@@ -277,15 +389,12 @@ onUnmounted(() => {
   gap: 48px;
   align-items: center;
 }
-
 .avatar {
-  position: relative;
   width: 200px;
   height: 200px;
-  position: relative;
   border-radius: 50%;
   overflow: hidden;
-  box-shadow: none;
+  position: relative;
   z-index: 5;
 }
 .avatar::before {
@@ -370,6 +479,7 @@ onUnmounted(() => {
 }
 .xp-company {
   font-weight: 700;
+  cursor: pointer;
 }
 .xp-company:hover {
   transform: scale(1.05);
@@ -387,7 +497,7 @@ onUnmounted(() => {
   margin-top: 28px;
 }
 
-/* primevue buttons (minimal) */
+/* primevue buttons */
 :deep(.p-button) {
   border-radius: 999px;
   padding: 10px 16px;
@@ -440,44 +550,93 @@ onUnmounted(() => {
     margin: 0 auto;
   }
 }
+
+/* compress vertical space on short viewports */
+@media (max-height: 760px) {
+  .main {
+    padding-top: 16px;
+  }
+  .hero {
+    gap: 32px;
+  }
+  .name {
+    font-size: clamp(32px, 5vw, 56px);
+  }
+  .avatar {
+    width: 180px;
+    height: 180px;
+  }
+}
+@media (max-height: 640px) {
+  .main {
+    padding-top: 8px;
+  }
+  .header {
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+  .avatar {
+    width: 160px;
+    height: 160px;
+  }
+}
 </style>
 
-<!-- GLOBAL (unscoped) — visible invert bubble without magnify -->
+<!-- GLOBAL (unscoped) -->
 <style>
 html,
 body {
   height: 100%;
-  background: #000; /* make the real stage black */
+  background: #000;
+  margin: 0;
 }
 
-body {
-  margin: 0; /* <— fixes the thin outer ring */
-}
-
+/* cursor defaults */
 :root {
-  --x: 50vw; /* cursor x */
-  --y: 50vh; /* cursor y */
-  --d: 128px; /* bubble diameter */
-  --theta: 0deg; /* bubble rotation */
-  --sx: 1; /* bubble warp X */
-  --sy: 1; /* bubble warp Y */
-
-  /* sub-pixel anti-aliased edge width (no blur()) */
+  --x: 50vw;
+  --y: 50vh;
+  --d: 128px;
+  --theta: 0deg;
+  --sx: 1;
+  --sy: 1;
   --soft: 1.5px;
-
-  /* inverted text should be pure white */
   --invert-contrast: 1.35;
   --invert-bright: 1;
-
-  --laser-size: 7px; /* diameter of the red dot */
-  --laser-color: #faf7f3; /* laser */
+  --laser-size: 7px;
+  --laser-color: #faf7f3;
 }
 
+/* stop invert on avatar */
 html.over-avatar .cursor-bubble {
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
   box-shadow: none;
   background: transparent;
+}
+
+/* disable on touch / reduced motion */
+.no-bubble .cursor-layer,
+.no-bubble .laser-dot {
+  display: none !important;
+}
+.no-bubble .page,
+.no-bubble .page * {
+  cursor: auto !important;
+}
+.no-bubble .tiltwrap {
+  transform: none !important;
+  transition: none !important;
+}
+
+/* fade blob when we hide it (leave window / hidden tab) */
+.cursor-layer,
+.laser-dot {
+  opacity: 1;
+  transition: opacity 120ms ease;
+}
+.cursor-hidden .cursor-layer,
+.cursor-hidden .laser-dot {
+  opacity: 0;
 }
 
 .cursor-layer {
@@ -486,8 +645,6 @@ html.over-avatar .cursor-bubble {
   pointer-events: none;
   z-index: 4;
 }
-
-/* position the bubble directly at the cursor */
 .cursor-wrap {
   position: fixed;
   left: var(--x);
@@ -496,21 +653,16 @@ html.over-avatar .cursor-bubble {
   transform-origin: 50% 50%;
   will-change: transform;
 }
-
-/* the element itself is only the circle area; backdrop-filter inverts what's beneath it */
 .cursor-bubble {
   width: var(--d);
   height: var(--d);
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.001);
-
   -webkit-backdrop-filter: invert(1) contrast(var(--invert-contrast))
     brightness(var(--invert-bright));
   backdrop-filter: invert(1) contrast(var(--invert-contrast)) brightness(var(--invert-bright));
-
   box-shadow: 0 0 0 var(--soft) rgba(0, 0, 0, 0);
 }
-
 .page,
 .page * {
   cursor: none !important;
@@ -528,7 +680,6 @@ html.over-avatar .cursor-bubble {
   pointer-events: none;
   z-index: 9999;
 }
-
 @keyframes laser-pulse {
   0% {
     transform: translate(-50%, -50%) scale(1);
